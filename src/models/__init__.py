@@ -1,0 +1,1 @@
+"""Deepfake detector model definitions."""
