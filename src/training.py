@@ -10,7 +10,8 @@ from sklearn.metrics import roc_auc_score, accuracy_score
 from torchvision import transforms
 from tqdm import tqdm
 
-from models.dino_mac import DinoMACForDeepfakeDetection
+# DinoMACForDeepfakeDetection is imported lazily inside run_dino_training()
+# to avoid triggering a HuggingFace model download at import time.
 
 # =========================================================================
 # 1. Hàm huấn luyện cơ bản (Dành cho pipeline hiện tại để không bị lỗi)
@@ -155,6 +156,9 @@ def run_validation_epoch_advanced(model, loader, criterion, device):
 def run_dino_training():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+    # Lazy import: only download/load the HuggingFace model when this function is called
+    from models.dino_mac import DinoMACForDeepfakeDetection
+
     # Định nghĩa thư mục lưu theo yêu cầu là thư mục models/ ở root
     checkpoint_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
     os.makedirs(checkpoint_dir, exist_ok=True)
