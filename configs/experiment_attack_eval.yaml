@@ -1,0 +1,62 @@
+experiment:
+  name: attack_eval
+  seed: 42
+  output_dir: reports/runs/attack_eval
+
+data:
+  mode: synthetic
+  image_size: 128
+  num_samples: 64
+  batch_size: 16
+  train_split: 0.75
+  raw_dir: data/raw
+  processed_dir: data/processed
+  generated_dir: data/generated
+
+generation:
+  enabled: false
+
+model:
+  name: tiny_cnn
+  checkpoint_path: models/tiny_cnn.pt
+  epochs: 3
+  learning_rate: 0.001
+  train: true
+  load_checkpoint: false
+
+# Multi-attack configuration
+attack:
+  enabled: true
+  # FGSM sweeps over multiple epsilon values
+  epsilons:
+    - 0.001
+    - 0.003
+    - 0.005
+    - 0.01
+    - 0.03
+  # I-FGSM
+  ifgsm_epsilon: 0.03
+  ifgsm_steps: 10
+  # PGD
+  pgd_epsilon: 0.01
+  pgd_alpha: 0.001
+  pgd_steps: 20
+
+defense:
+  enabled: true
+  method: jpeg_smoothing
+  jpeg_quality: 75
+  adversarial_training: false
+
+# Adversarial training disabled in this config (run separately)
+adversarial_training:
+  enabled: false
+
+evaluation:
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1
+    - roc_auc
+    - asr
