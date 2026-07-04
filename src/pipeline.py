@@ -24,6 +24,7 @@ import torch
 from attacks import ATTACK_REGISTRY
 from config import ExperimentConfig
 from data.synthetic import build_synthetic_loaders
+from data.real import build_real_loaders
 from defenses.adversarial_training import AdversarialTrainer
 from defenses.preprocessing import JPEGSmoothingDefense, jpeg_smoothing_batch
 from evaluation.metrics import (
@@ -153,13 +154,23 @@ def run_experiment(config: ExperimentConfig) -> dict[str, Any]:
     print("STAGE 1 — Data Loading & Model Setup")
     print("=" * 60)
 
-    train_loader, test_loader = build_synthetic_loaders(
-        num_samples=int(data_cfg.get("num_samples", 64)),
-        image_size=int(data_cfg.get("image_size", 128)),
-        batch_size=int(data_cfg.get("batch_size", 16)),
-        train_split=float(data_cfg.get("train_split", 0.75)),
-        seed=config.seed,
-    )
+    data_mode = data_cfg.get("mode", "synthetic")
+    if data_mode == "real":
+        train_loader, test_loader = build_real_loaders(
+            train_dir=data_cfg.get("train_dir", "data/raw/train"),
+            test_dir=data_cfg.get("test_dir", "data/raw/test"),
+            valid_dir=data_cfg.get("valid_dir", None),
+            image_size=int(data_cfg.get("image_size", 128)),
+            batch_size=int(data_cfg.get("batch_size", 16)),
+        )
+    else:
+        train_loader, test_loader = build_synthetic_loaders(
+            num_samples=int(data_cfg.get("num_samples", 64)),
+            image_size=int(data_cfg.get("image_size", 128)),
+            batch_size=int(data_cfg.get("batch_size", 16)),
+            train_split=float(data_cfg.get("train_split", 0.75)),
+            seed=config.seed,
+        )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[+] Device: {device}")
