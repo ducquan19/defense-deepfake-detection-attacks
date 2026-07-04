@@ -1,287 +1,114 @@
-# Defense in Deepfake Detection Attacks
+# Nghiên cứu Phòng thủ Tấn công Đối kháng trên Mô hình Nhận diện Deepfake
 
-Codebase nghiên cứu các phương pháp **phòng thủ đối kháng** (adversarial defense) cho mô hình nhận diện deepfake, bao gồm tái lập pipeline tấn công → phòng thủ → đánh giá độ bền vững.
-
-> **Ghi chú đạo đức:** Dự án được thiết kế cho mục tiêu nghiên cứu phòng thủ, đánh giá độ bền vững và tái lập thí nghiệm. Không sử dụng codebase để tạo danh tính giả mạo, lừa đảo hoặc triển khai tấn công ngoài môi trường được phép.
+Dự án này tập trung nghiên cứu sự suy giảm hiệu suất của các mô hình phát hiện Deepfake trước các cuộc tấn công đối kháng (Adversarial Attacks) và đánh giá hiệu quả của các phương pháp phòng thủ (Adversarial Defenses).
 
 ---
 
-## Pipeline nghiên cứu
+## 1. Dữ liệu
+Sử dụng bộ dữ liệu **140k Real and Fake Faces**:
+- **Train:** 100,000 ảnh
+- **Validation:** 20,000 ảnh
+- **Test:** 20,000 ảnh
 
-```text
-Clean Images
-     │
-     ▼
-Baseline Detector  ──────────────► Stage 2: Clean Evaluation
-(TinyCNN / DINO-MAC)                  accuracy, precision, recall, F1, AUC
-     │
-     ▼
-Adversarial Attacks  (Stage 3)
-  ├─ FGSM   (ε ∈ {0.001, 0.003, 0.005, 0.01, 0.03})
-  ├─ I-FGSM (ε=0.03, steps=10)
-  └─ PGD    (ε=0.01, α=0.001, steps=20, random start)
-     │
-     ▼
-Attack Evaluation  (Stage 3)
-  ACC_adv, F1_adv, AUC_adv, ASR
-     │
-     ├──── Stage 5: Preprocessing Defense
-     │         JPEG re-encoding (quality=75)
-     │
-     └──── Stage 6: Adversarial Training
-               L = L_clean + λ·L_adv  (λ=1.0, PGD on-the-fly)
-                    │
-                    ▼
-              Robust Detector  ──► Stage 7: Robustness Comparison
-                                    Baseline vs Robust (Markdown table)
-```
+Tập dữ liệu bao gồm khuôn mặt người thật và khuôn mặt giả mạo (Fake) được tạo ra từ StyleGAN. Trong pipeline, tập Train và Valid được gộp lại (120,000 ảnh) để tối đa hóa hiệu suất huấn luyện mô hình.
+
+## 2. Các phương pháp Tấn công Đối kháng
+Dự án đánh giá độ bền vững của mô hình trên **9 thuật toán tấn công** khác nhau, được triển khai thông qua thư viện `torchattacks`, chia làm các nhóm:
+- **Gradient-based (White-box):** FGSM, I-FGSM, PGD, MI-FGSM, NI-FGSM
+- **Optimization-based (White-box):** Carlini-Wagner (C&W), DeepFool
+- **Black-box:** Square Attack
+- **Ensemble:** AutoAttack (APGD-CE + Square)
+
+## 3. Các phương pháp Phòng thủ
+- **Tiền xử lý (Preprocessing):** Áp dụng bộ lọc nén JPEG (JPEG Smoothing - Quality=75) để phá vỡ các nhiễu đối kháng tần số cao.
+- **Huấn luyện đối kháng (Adversarial Training):** Đưa trực tiếp các mẫu đối kháng (Adversarial examples) được sinh ra từ PGD vào quá trình huấn luyện để tăng cường độ bền vững của mạng neural.
 
 ---
 
-## Kiến trúc Mô hình Nhận diện (DINO-MAC)
+## 4. Kết quả Thực nghiệm
 
-Dự án sử dụng **DINO-MAC** (DINOv2 backbone + Register Tokens + Multi-Aspect Classification Head) làm detector chủ lực. Model khai thác triệt để biểu diễn không gian của Foundation Models, tỏ ra hiệu quả trước hình ảnh bị suy giảm chất lượng và adversarial attacks.
+Dưới đây là kết quả đánh giá sự sụt giảm hiệu năng của mô hình cơ sở (Baseline) khi bị tấn công đối kháng trên tập Test (20,000 ảnh):
 
-Cho thí nghiệm nhẹ (không cần GPU), pipeline mặc định dùng **TinyCNN** với dữ liệu synthetic.
+| Tình trạng / Thuật toán | Accuracy | F1-Score | ROC-AUC | Attack Success Rate (ASR) |
+|-------------------------|----------|----------|---------|---------------------------|
+| **Clean (Không bị tấn công)** | 62.44% | 60.19% | 66.86% | - |
+| **FGSM** | 5.00% | 4.62% | 1.12% | 91.98% |
+| **I-FGSM** | 2.21% | 1.96% | 0.28% | 96.46% |
+| **PGD** | 23.16% | 20.00% | 14.23% | 62.92% |
+| **MI-FGSM** | 22.23% | 19.22% | 13.30% | 64.41% |
+| **NI-FGSM** | 31.05% | 28.87% | 23.61% | 50.26% |
+| **DeepFool** | 16.74% | 0.32% | 1.60% | 73.19% |
+| **Carlini-Wagner (C&W)**| 49.30% | 45.88% | 63.25% | 21.04% |
+| **Square Attack** | 44.74% | 46.60% | 56.14% | 28.35% |
 
----
+> **Nhận xét:** Mô hình cơ sở (Baseline) rất dễ bị tổn thương trước các cuộc tấn công White-box (đặc biệt là I-FGSM và FGSM), làm giảm độ chính xác từ 62.44% xuống chỉ còn 2-5% với Tỷ lệ tấn công thành công (ASR) lên đến >90%. Các tấn công tối ưu hóa như DeepFool cũng làm suy giảm nghiêm trọng F1-Score về gần bằng 0.
 
-## Cấu trúc dự án
+### 4.2. Hiệu quả của Adversarial Training
 
-```text
-.   
-|-- app/                          # Ứng dụng Streamlit demo
-|-- configs/
-|   |-- experiment_baseline.yaml              # Baseline (TinyCNN, synthetic data)
-|   |-- experiment_attack_eval.yaml           # Multi-attack evaluation (FGSM/I-FGSM/PGD)
-|   |-- experiment_adversarial_training.yaml  # Adversarial training + robustness
-|   `-- experiment_dino_mac.yaml              # DINO-MAC full training
-|-- data/
-|   |-- raw/                      # Dữ liệu gốc
-|   |-- processed/                # Dữ liệu đã tiền xử lý
-|   `-- generated/                # Ảnh deepfake hoặc dữ liệu sinh ra
-|-- models/                       # Checkpoint mô hình cục bộ
-|-- notebooks/                    # Notebook thử nghiệm và phân tích
-|-- reports/
-|   |-- runs/                     # Output của từng experiment run
-|   `-- generate_report.py        # Tổng hợp kết quả → Markdown report
-|-- scripts/
-|   |-- run_pipeline.py                # Baseline pipeline
-|   |-- run_attack_eval.py             # Multi-attack evaluation (Stage 2–5)
-|   |-- run_adversarial_training.py    # Adversarial training + comparison (Stage 1–7)
-|   `-- run_robustness_eval.py         # Standalone: so sánh 2 checkpoint
-|-- src/
-|   |-- attacks/
-|   |   |-- fgsm.py               # FGSM: x_adv = x + ε·sign(∇L)
-|   |   |-- ifgsm.py              # I-FGSM (BIM): iterative với L∞ clipping
-|   |   `-- pgd.py                # PGD: random start + projection (Madry 2018)
-|   |-- core/
-|   |   `-- base.py               # BaseDetector, BaseAttack, BaseDefense, BaseEvaluator
-|   |-- data/
-|   |   `-- synthetic.py          # Synthetic dataset (checkerboard fake pattern)
-|   |-- defenses/
-|   |   |-- preprocessing.py      # JPEG smoothing defense
-|   |   `-- adversarial_training.py  # AdversarialTrainer: L = L_clean + λ·L_adv
-|   |-- evaluation/
-|   |   `-- metrics.py            # compute_full_metrics, compute_asr, RobustnessEvaluator
-|   |-- generation/
-|   |   `-- toy_generator.py      # Toy deepfake generator (blend)
-|   |-- models/
-|   |   |-- tiny_cnn.py           # TinyCNN (lightweight baseline)
-|   |   `-- dino_mac.py           # DINO-MAC (DINOv2 + MAC Head)
-|   |-- pipeline.py               # Pipeline chính 7 stages
-|   `-- utils/
-|       `-- reproducibility.py    # seed_everything
-`-- tests/
-    `-- test_smoke.py             # 19 smoke tests (attacks, AT, metrics, evaluator)
-```
+Sau khi áp dụng phương pháp Adversarial Training (huấn luyện trên tập dữ liệu đã trộn lẫn ảnh nhiễu PGD), dưới đây là sự cải thiện rõ rệt về độ bền vững của mô hình trên tập Test:
+
+| Tình trạng / Thuật toán | Accuracy (Baseline) | Accuracy (Robust) | ASR (Baseline) | ASR (Robust) | Cải thiện Accuracy |
+|-------------------------|---------------------|-------------------|----------------|--------------|-----------|
+| **Clean**               | 62.44%              | 57.63%            | -              | -            | -         |
+| **FGSM**                | 5.00%               | 37.47%            | 91.98%         | 34.98%       | 🟢 +32.47% |
+| **I-FGSM**              | 2.21%               | 35.94%            | 96.46%         | 37.65%       | 🟢 +33.73% |
+| **PGD**                 | 23.14%              | 49.90%            | 62.95%         | 13.41%       | 🟢 +26.76% |
+| **MI-FGSM**             | 22.23%              | 49.76%            | 64.41%         | 13.66%       | 🟢 +27.53% |
+| **NI-FGSM**             | 31.05%              | 51.53%            | 50.26%         | 10.58%       | 🟢 +20.48% |
+| **DeepFool**            | 16.74%              | 4.88%             | 73.19%         | 91.52%       | 🔴 -11.86% |
+| **C&W**                 | 49.30%              | 54.97%            | 21.04%         | 4.62%        | 🟢 +5.67%  |
+| **Square Attack**       | 44.74%              | 55.16%            | 28.35%         | 4.28%        | 🟢 +10.42% |
+| **AutoAttack**          | 21.68%              | 49.76%            | 65.27%         | 13.65%       | 🟢 +28.08% |
+
+> **Nhận xét:** Mô hình Robust cho thấy sức chịu đựng tuyệt vời trước hầu hết các phương pháp tấn công White-box (như PGD, I-FGSM, AutoAttack), duy trì được Accuracy ở mức chấp nhận được và giảm thiểu rất mạnh Tỷ lệ tấn công thành công (ASR). Riêng đối với DeepFool, việc sử dụng hàm loss khác biệt khiến thuật toán này có khả năng "lách" qua lớp phòng thủ PGD (regression), đòi hỏi các phương pháp ensemble defense phức tạp hơn trong tương lai.
 
 ---
 
-## Cài đặt
+## 5. Minh họa Tấn công Đối kháng
 
-**Khuyến nghị:** dùng `uv` để quản lý môi trường ảo (nhanh hơn pip):
+Một khi mô hình bị tấn công, bức ảnh Deepfake gốc sẽ bị cộng thêm một lớp nhiễu đối kháng (perturbation/noise). Lớp nhiễu này vô cùng nhỏ gọn nhưng được tối ưu hóa bằng thuật toán gradient để đánh lừa mạng neural nhận diện nhầm ảnh giả mạo thành ảnh thật (Real). Bằng mắt thường, con người gần như không thể nhận ra sự thay đổi này.
 
-```powershell
-# Tạo môi trường và cài dependencies
-uv sync
-# Hoặc dùng pip truyền thống:
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-```
+*(Lưu ý: Các hình ảnh bên dưới sẽ hiển thị sau khi bạn chạy script sinh ảnh mẫu và lưu vào thư mục `reports/samples/`)*
 
-> ⚠️ **Lưu ý NumPy:** Nếu dùng Anaconda, scipy/sklearn có thể compiled cho NumPy 1.x trong khi uv cài NumPy 2.x. Hãy chạy tests bằng `.venv\Scripts\python -m pytest` thay vì `pytest` của hệ thống.
+| Ảnh gốc (Fake) | Lớp nhiễu / Perturbation (Được phóng đại) | Ảnh đối kháng (Mô hình nhận diện sai là Real) |
+|:---:|:---:|:---:|
+| <img src="reports/samples/original.jpg" width="150" alt="Original"> | <img src="reports/samples/noise_pgd.jpg" width="150" alt="PGD Noise"> | <img src="reports/samples/adv_pgd.jpg" width="150" alt="PGD Attack"> |
+| <img src="reports/samples/original.jpg" width="150" alt="Original"> | <img src="reports/samples/noise_deepfool.jpg" width="150" alt="DeepFool Noise"> | <img src="reports/samples/adv_deepfool.jpg" width="150" alt="DeepFool Attack"> |
+| <img src="reports/samples/original.jpg" width="150" alt="Original"> | <img src="reports/samples/noise_autoattack.jpg" width="150" alt="AutoAttack Noise"> | <img src="reports/samples/adv_autoattack.jpg" width="150" alt="AutoAttack Attack"> |
 
 ---
 
-## Chạy tests
+## 6. Hướng dẫn chạy
 
-```powershell
-.venv\Scripts\python -m pytest tests/ -v
-# Expected: 19 passed
-```
+Dự án hỗ trợ chạy thông qua Command Line Interface (CLI) rất linh hoạt, cho phép bạn truyền trực tiếp đường dẫn thư mục dữ liệu (input) và thư mục lưu trữ (output) mà không cần can thiệp vào file cấu hình. Mã nguồn có thể chạy trên bất kỳ máy tính hay server nào.
 
----
-
-## Chạy pipeline mẫu (không cần GPU)
-
-```powershell
-# Baseline: train TinyCNN + clean evaluation
-.venv\Scripts\python scripts/run_pipeline.py --config configs/experiment_baseline.yaml
-
-# Multi-attack evaluation: FGSM × 5 epsilons, I-FGSM, PGD + JPEG defense
-.venv\Scripts\python scripts/run_attack_eval.py
-
-# Adversarial training + robustness comparison (baseline vs robust detector)
-.venv\Scripts\python scripts/run_adversarial_training.py
-
-# So sánh 2 checkpoint có sẵn (standalone)
-.venv\Scripts\python scripts/run_robustness_eval.py `
-    --baseline-ckpt models/tiny_cnn.pt `
-    --robust-ckpt checkpoints/robust_detector.pth
-
-# Tổng hợp tất cả kết quả → Markdown report
-.venv\Scripts\python reports/generate_report.py
-```
-
-Kết quả được ghi vào:
-
-```text
-reports/runs/
-├── baseline/               # clean_metrics.json
-├── attack_eval/            # attack_report.json, defended_jpeg_metrics.json
-└── adversarial_training/   # comparison_report.json, comparison_table.md
-checkpoints/
-└── robust_detector.pth     # Checkpoint sau adversarial training
-```
-
----
-
-## Chạy trên Google Colab / Kaggle
-
-Để huấn luyện DINO-MAC trên GPU mạnh:
-
+**Bước 1: Cài đặt thư viện**
 ```bash
-# 1. Clone mã nguồn
-!git clone https://github.com/ducquan19/defense-deepfake-detection-attacks.git
-%cd defense-deepfake-detection-attacks
-
-# 2. Cài đặt
-!pip install uv
-!uv pip install --system -e ".[dev]"
-!uv pip install --system torch torchvision transformers
-
-# 3. Multi-attack evaluation với DINO-MAC
-!python scripts/run_attack_eval.py --config configs/experiment_dino_mac.yaml
-
-# 4. Adversarial training + comparison
-!python scripts/run_adversarial_training.py --config configs/experiment_adversarial_training.yaml
+pip install uv
+uv pip install -e ".[dev]"
+uv pip install torch torchvision torchaudio transformers torchattacks
 ```
 
----
-
-## Adversarial Attacks
-
-Tất cả attack implement `BaseAttack` — đầu ra là `AttackResult(adversarial_images, perturbations, metadata)`.
-
-| Attack | Formula | Hyperparameters mặc định |
-|--------|---------|--------------------------|
-| **FGSM** | `x_adv = x + ε·sign(∇L)` | `ε ∈ {0.001, 0.003, 0.005, 0.01, 0.03}` |
-| **I-FGSM** | `x_{t+1} = clip(x_t + α·sign(∇L), x±ε)` | `ε=0.03, steps=10, α=ε/steps` |
-| **PGD** | `x_{t+1} = Proj_{B(x,ε)}(x_t + α·sign(∇L))` | `ε=0.01, α=0.001, steps=20, random_start=True` |
-
-```python
-from attacks import FGSMAttack, IFGSMAttack, PGDAttack, ATTACK_REGISTRY
-
-attack = PGDAttack(epsilon=0.01, alpha=0.001, steps=20)
-result = attack.perturb(model, images, labels)
-# result.adversarial_images  → tensor [B, 3, H, W]
-# result.metadata            → {"attack": "pgd", "epsilon": 0.01, ...}
+**Bước 2: Chạy Full Pipeline với dữ liệu tùy chỉnh**
+Lệnh sau sẽ train mô hình từ đầu, đánh giá các loại tấn công và sinh ra Robust Model:
+```bash
+python scripts/run_pipeline.py \
+    --config configs/experiment_full_robustness.yaml \
+    --train-dir "/path/to/your/train_dataset" \
+    --test-dir "/path/to/your/test_dataset" \
+    --output-dir "reports/runs/my_experiment"
 ```
 
----
+**Bước 3: Chạy đánh giá bằng Pre-trained Checkpoints**
+Để tiết kiệm thời gian, có thể tải sẵn Checkpoint của mô hình đã được huấn luyện bằng Adversarial Training tại đây:
+📥 **[Tải Pre-trained Checkpoints tại đây](https://drive.google.com/drive/folders/1bkn80l86P1UlKHTT4L0E6vEM0jio8oHE?usp=sharing)**
+📥 **[Tải Pre-trained models tại đây](https://drive.google.com/drive/folders/1amkm_9yDLqMKu-CqP6h9pKs2MsUfrYf0?usp=drive_link)**
 
-## Defenses
-
-| Defense | Mô tả |
-|---------|-------|
-| **JPEG Smoothing** | Re-encode qua JPEG (quality=75) để xóa high-freq perturbation |
-| **Adversarial Training** | Huấn luyện với `L = L_clean + λ·L_adv`, sinh adversarial on-the-fly |
-
-```python
-from defenses.adversarial_training import AdversarialTrainer
-
-trainer = AdversarialTrainer(
-    model=model,
-    optimizer=optimizer,
-    device=device,
-    attack_fn="pgd",   # "pgd" hoặc "fgsm"
-    epsilon=0.01,
-    alpha=0.001,
-    steps=10,
-    adv_lambda=1.0,
-    checkpoint_dir="checkpoints",
-)
-trainer.fit(train_loader, epochs=10)
-trainer.save_checkpoint("robust_detector.pth")
+Sau khi tải về, bạn có thể truyền đường dẫn checkpoint qua cờ `--checkpoint-path` để bỏ qua bước Train và chỉ chạy đánh giá độ bền:
+```bash
+python scripts/run_pipeline.py \
+    --config configs/experiment_full_robustness.yaml \
+    --test-dir "/path/to/your/test_dataset" \
+    --checkpoint-path "models/downloaded_robust_model.pt" \
+    --output-dir "reports/runs/eval_only"
 ```
-
----
-
-## Evaluation Metrics
-
-```python
-from evaluation.metrics import RobustnessEvaluator, compute_asr
-
-evaluator = RobustnessEvaluator(model, test_loader, device)
-report = evaluator.run(attacks=[FGSMAttack(0.01), IFGSMAttack(0.03), PGDAttack(0.01)])
-
-# report["clean"]  → {accuracy, precision, recall, f1, roc_auc}
-# report["fgsm"]   → {accuracy, precision, recall, f1, roc_auc, asr}
-# report["pgd"]    → {accuracy, precision, recall, f1, roc_auc, asr}
-```
-
-**Attack Success Rate (ASR):**
-```
-ASR = # correctly-classified samples bị fool / # correctly-classified samples
-```
-
----
-
-## Base Classes
-
-Tất cả component interface trong [`src/core/base.py`](src/core/base.py).
-
-| Class | Mô tả |
-|-------|-------|
-| `BaseDataModule` | Chuẩn hóa `train/val/test_dataloader` |
-| `BaseDeepfakeGenerator` | Sinh ảnh fake từ batch input |
-| `BaseDetector` | Detector deepfake, output logits `[B, 2]` |
-| `BaseAttack` | Tạo adversarial images, trả về `AttackResult` |
-| `BaseDefense` | Biến đổi/làm sạch batch trước khi detect |
-| `BaseEvaluator` | Đánh giá clean/attacked/defended theo cùng protocol |
-
-**Quy ước tensor:**
-- Ảnh: `[B, 3, H, W]`, `float32`, giá trị `[0, 1]`
-- Label: `0 = real`, `1 = fake`
-- Detector output: logits `[B, 2]`
-- Metrics: accuracy, precision, recall, F1, ROC-AUC, ASR
-
----
-
-## Chạy Streamlit Demo
-
-```powershell
-streamlit run app/streamlit_app.py
-```
-
-Demo hỗ trợ upload ảnh và chạy predictor baseline. Khi có checkpoint thật, cập nhật đường dẫn trong `configs/experiment_baseline.yaml`.
-
----
-
-## Quản lý artifact
-
-- Không commit dataset lớn, checkpoint, generated images hoặc report runtime lớn.
-- Config YAML và source code phải được version control để tái lập thí nghiệm.
-- Mỗi experiment tự động lưu: seed, snapshot config, `metrics_<seed>_<timestamp>.json`.
