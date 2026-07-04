@@ -26,6 +26,7 @@ from config import ExperimentConfig
 from data.synthetic import build_synthetic_loaders
 from data.real import build_real_loaders
 from defenses.adversarial_training import AdversarialTrainer
+from defenses.preprocessing import JPEGSmoothingDefense, jpeg_smoothing_batch
 from evaluation.metrics import (
     RobustnessEvaluator,
     evaluate_detector,
