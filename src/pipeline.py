@@ -26,13 +26,10 @@ from config import ExperimentConfig
 from data.synthetic import build_synthetic_loaders
 from data.real import build_real_loaders
 from defenses.adversarial_training import AdversarialTrainer
-from defenses.preprocessing import JPEGSmoothingDefense, jpeg_smoothing_batch
 from evaluation.metrics import (
     RobustnessEvaluator,
-    compute_full_metrics,
     evaluate_detector,
 )
-from generation.toy_generator import apply_toy_deepfake_batch
 from models.tiny_cnn import TinyCNN
 from training import train_one_epoch
 from utils.reproducibility import seed_everything
