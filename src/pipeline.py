@@ -21,9 +21,7 @@ from typing import Any
 
 import torch
 
-from attacks.fgsm import FGSMAttack
-from attacks.ifgsm import IFGSMAttack
-from attacks.pgd import PGDAttack
+from attacks import ATTACK_REGISTRY
 from config import ExperimentConfig
 from data.synthetic import build_synthetic_loaders
 from defenses.adversarial_training import AdversarialTrainer
@@ -195,23 +193,22 @@ def run_experiment(config: ExperimentConfig) -> dict[str, Any]:
         print("STAGE 3 — Multi-Attack Evaluation")
         print("=" * 60)
 
-        epsilons: list[float] = attack_cfg.get(
-            "epsilons", [float(attack_cfg.get("epsilon", 0.03))]
-        )
-
-        # Build attack instances
+        # Build attack instances dynamically
+        eval_attacks = attack_cfg.get("eval_attacks", [])
         attacks = []
-        for eps in epsilons:
-            attacks.append(FGSMAttack(epsilon=eps))
-
-        ifgsm_eps = float(attack_cfg.get("ifgsm_epsilon", 0.03))
-        ifgsm_steps = int(attack_cfg.get("ifgsm_steps", 10))
-        attacks.append(IFGSMAttack(epsilon=ifgsm_eps, steps=ifgsm_steps))
-
-        pgd_eps = float(attack_cfg.get("pgd_epsilon", 0.01))
-        pgd_alpha = float(attack_cfg.get("pgd_alpha", 0.001))
-        pgd_steps = int(attack_cfg.get("pgd_steps", 20))
-        attacks.append(PGDAttack(epsilon=pgd_eps, alpha=pgd_alpha, steps=pgd_steps))
+        if not eval_attacks:
+            # Fallback for old configs
+            print("[!] No 'eval_attacks' list in config. Falling back to default PGD.")
+            if "pgd" in ATTACK_REGISTRY:
+                attacks.append(ATTACK_REGISTRY["pgd"](epsilon=0.01, alpha=0.001, steps=20))
+        else:
+            for atk_def in eval_attacks:
+                name = atk_def.get("name")
+                if name in ATTACK_REGISTRY:
+                    kwargs = {k: v for k, v in atk_def.items() if k != "name"}
+                    attacks.append(ATTACK_REGISTRY[name](**kwargs))
+                else:
+                    print(f"[!] Warning: Unknown attack '{name}' in config. Skipping.")
 
         evaluator = RobustnessEvaluator(baseline_model, test_loader, device)
         attack_report = evaluator.run(attacks=attacks)
@@ -310,18 +307,16 @@ def run_experiment(config: ExperimentConfig) -> dict[str, Any]:
         print("STAGE 7 — Robustness Comparison: Baseline vs Robust Detector")
         print("=" * 60)
 
-        comparison_attacks = [
-            FGSMAttack(epsilon=float(attack_cfg.get("pgd_epsilon", 0.01))),
-            IFGSMAttack(
-                epsilon=float(attack_cfg.get("ifgsm_epsilon", 0.01)),
-                steps=int(attack_cfg.get("ifgsm_steps", 10)),
-            ),
-            PGDAttack(
-                epsilon=float(attack_cfg.get("pgd_epsilon", 0.01)),
-                alpha=float(attack_cfg.get("pgd_alpha", 0.001)),
-                steps=int(attack_cfg.get("pgd_steps", 20)),
-            ),
-        ]
+        # Re-use the same attacks defined for Stage 3, if available,
+        # otherwise rebuild them.
+        comparison_attacks = attacks if 'attacks' in locals() and attacks else []
+        if not comparison_attacks:
+            eval_attacks = attack_cfg.get("eval_attacks", [])
+            for atk_def in eval_attacks:
+                name = atk_def.get("name")
+                if name in ATTACK_REGISTRY:
+                    kwargs = {k: v for k, v in atk_def.items() if k != "name"}
+                    comparison_attacks.append(ATTACK_REGISTRY[name](**kwargs))
 
         print("\n--- Baseline Detector ---")
         baseline_evaluator = RobustnessEvaluator(baseline_model, test_loader, device)

@@ -1,0 +1,64 @@
+experiment:
+  name: full_robustness_eval
+  seed: 42
+  output_dir: reports/runs/full_robustness_eval
+
+data:
+  mode: synthetic
+  image_size: 128
+  num_samples: 500  # More samples for robust evaluation
+  batch_size: 32    # T4 GPU (16GB) should handle 32 easily for TinyCNN
+  train_split: 0.75
+  raw_dir: data/raw
+  processed_dir: data/processed
+
+model:
+  name: tiny_cnn
+  checkpoint_path: models/tiny_cnn_robust.pt
+  epochs: 5
+  learning_rate: 0.001
+  train: true
+  load_checkpoint: false
+
+attack:
+  enabled: true
+  eval_attacks:
+    - name: fgsm
+      epsilon: 0.03
+    - name: ifgsm
+      epsilon: 0.03
+      steps: 10
+    - name: pgd
+      epsilon: 0.01
+      alpha: 0.001
+      steps: 20
+    - name: mifgsm
+      epsilon: 0.01
+      steps: 10
+    - name: nifgsm
+      epsilon: 0.01
+      steps: 10
+    - name: deepfool
+      steps: 20       # Reduced from 50 to run faster on T4
+      overshoot: 0.02
+    - name: cw
+      c: 1
+      kappa: 0
+      steps: 20       # Reduced from 100/50 for T4
+      lr: 0.01
+    - name: square
+      epsilon: 0.03
+      n_queries: 50   # Reduced from 100 for T4 black-box efficiency
+    - name: autoattack
+      epsilon: 0.01
+      version: standard # Standard version instead of 'plus' for performance
+
+adversarial_training:
+  enabled: true
+  attack_fn: pgd
+  epsilon: 0.01
+  alpha: 0.002
+  steps: 5            # Low steps for fast AT on T4
+  adv_lambda: 1.0
+  epochs: 5
+  checkpoint_dir: checkpoints
