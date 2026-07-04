@@ -24,6 +24,16 @@ class AutoAttackWrapper(BaseAttack):
         version = kwargs.get("version", self.version)
 
         attack = torchattacks.AutoAttack(model, eps=epsilon, version=version)
+        
+        # FIX FOR BINARY CLASSIFICATION:
+        # AutoAttack 'standard' includes 'apgd-t' and 'fab-t' which use DLR loss.
+        # DLR loss tries to find the 3rd and 4th highest logits (index -3, -4).
+        # Since this is a binary task (2 logits), it crashes with IndexError.
+        # Restricting to untargeted APGD-CE and Square is the mathematically 
+        # correct equivalent of AutoAttack for binary classification.
+        if hasattr(attack, "attacks_to_run"):
+            attack.attacks_to_run = ['apgd-ce', 'square']
+            
         adversarial_images = attack(images, labels)
         
         return AttackResult(
