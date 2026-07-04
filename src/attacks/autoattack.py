@@ -23,17 +23,16 @@ class AutoAttackWrapper(BaseAttack):
         epsilon = float(kwargs.get("epsilon", self.epsilon))
         version = kwargs.get("version", self.version)
 
-        attack = torchattacks.AutoAttack(model, eps=epsilon, version=version)
-        
         # FIX FOR BINARY CLASSIFICATION:
-        # AutoAttack 'standard' includes 'apgd-t' and 'fab-t' which use DLR loss.
-        # DLR loss tries to find the 3rd and 4th highest logits (index -3, -4).
-        # Since this is a binary task (2 logits), it crashes with IndexError.
-        # Restricting to untargeted APGD-CE and Square is the mathematically 
-        # correct equivalent of AutoAttack for binary classification.
-        if hasattr(attack, "attacks_to_run"):
-            attack.attacks_to_run = ['apgd-ce', 'square']
-            
+        # torchattacks.AutoAttack 'standard' includes 'apgd-t' and 'fab-t' which use DLR loss.
+        # DLR loss tries to find the 3rd and 4th highest logits (index -3, -4), causing an
+        # IndexError on binary classification tasks. 
+        # Modifying attack.attacks_to_run doesn't work because MultiAttack initializes the 
+        # sub-attacks in __init__.
+        # Therefore, we directly use APGD (which is the APGD-CE untargeted core of AutoAttack).
+        # We don't include Square here because Square is already evaluated separately in our pipeline.
+        attack = torchattacks.APGD(model, eps=epsilon, steps=100)
+
         adversarial_images = attack(images, labels)
         
         return AttackResult(
