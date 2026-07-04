@@ -1,0 +1,55 @@
+experiment:
+  name: dino_mac_training
+  seed: 42
+  output_dir: reports/runs/dino_mac
+
+data:
+  mode: synthetic # Dùng dữ liệu giả lập trước để test luồng
+  image_size: 224 # Bắt buộc phải là bội số của 14 cho DINOv2
+  num_samples: 32 # Tăng số lượng mẫu để test # large: 200, small: 32
+  batch_size: 2 # large: 32, small: 2
+  train_split: 0.8
+  raw_dir: data/raw
+  processed_dir: data/processed
+  generated_dir: data/generated
+
+generation:
+  enabled: true
+  method: toy_blend
+  strength: 0.35
+
+model:
+  name: dino_mac
+  
+  # Chế độ chạy
+  load_checkpoint: true  # Tải mô hình đã lưu
+  train: true           # Có huấn luyện hay không
+  
+  # Tham số riêng của DINO-MAC
+  huggingface_model_name: facebook/dinov2-with-registers-small # thay bằng large khi dùng trên colab/kaggle
+  freeze_backbone: false
+  use_stochastic_depth: true
+  
+  # Tham số quá trình học (Training)
+  epochs: 30
+  backbone_lr: 0.00001 # 1e-5
+  head_lr: 0.0001      # 1e-4
+  weight_decay: 0.0001 # 1e-4
+  min_lr: 0.000001     # 1e-6 (eta_min)
+  checkpoint_path: models/dinomac_best.pt
+
+attack:
+  enabled: true
+  method: fgsm
+  epsilon: 0.03
+
+defense:
+  enabled: true
+  method: jpeg_smoothing
+  jpeg_quality: 75
+  adversarial_training: false
+
+evaluation:
+  metrics:
+    - accuracy
+    - roc_auc

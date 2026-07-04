@@ -1,0 +1,56 @@
+{
+  "clean_accuracy": 0.375,
+  "clean_precision": 0.375,
+  "clean_recall": 1.0,
+  "clean_f1": 0.5454545454545454,
+  "clean_roc_auc": 1.0,
+  "attack_clean_accuracy": 0.375,
+  "attack_clean_precision": 0.375,
+  "attack_clean_recall": 1.0,
+  "attack_clean_f1": 0.5454545454545454,
+  "attack_clean_roc_auc": 1.0,
+  "attack_pgd_accuracy": 0.375,
+  "attack_pgd_precision": 0.375,
+  "attack_pgd_recall": 1.0,
+  "attack_pgd_f1": 0.5454545454545454,
+  "attack_pgd_roc_auc": 1.0,
+  "attack_pgd_asr": 0.0,
+  "adversarial_training_epochs": 5,
+  "adversarial_training_checkpoint": "checkpoints/robust_detector.pth",
+  "comparison": {
+    "baseline": {
+      "clean": {
+        "accuracy": 0.375,
+        "precision": 0.375,
+        "recall": 1.0,
+        "f1": 0.5454545454545454,
+        "roc_auc": 1.0
+      },
+      "pgd": {
+        "accuracy": 0.375,
+        "precision": 0.375,
+        "recall": 1.0,
+        "f1": 0.5454545454545454,
+        "roc_auc": 1.0,
+        "asr": 0.0
+      }
+    },
+    "robust": {
+      "clean": {
+        "accuracy": 0.375,
+        "precision": 0.375,
+        "recall": 1.0,
+        "f1": 0.5454545454545454,
+        "roc_auc": 1.0
+      },
+      "pgd": {
+        "accuracy": 0.375,
+        "precision": 0.375,
+        "recall": 1.0,
+        "f1": 0.5454545454545454,
+        "roc_auc": 1.0,
+        "asr": 0.0
+      }
+    }
+  }
+}
