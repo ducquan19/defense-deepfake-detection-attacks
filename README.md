@@ -78,9 +78,65 @@ Một khi mô hình bị tấn công, bức ảnh Deepfake gốc sẽ bị cộn
 
 ---
 
-## 6. Hướng dẫn chạy
+## 6. Demo Giao diện Tương tác (Gradio)
 
-Dự án hỗ trợ chạy thông qua Command Line Interface (CLI) rất linh hoạt, cho phép bạn truyền trực tiếp đường dẫn thư mục dữ liệu (input) và thư mục lưu trữ (output) mà không cần can thiệp vào file cấu hình. Mã nguồn có thể chạy trên bất kỳ máy tính hay server nào.
+Dự án cung cấp một ứng dụng web tương tác trực quan sử dụng thư viện **Gradio**. Giao diện này tích hợp toàn bộ pipeline mô phỏng tấn công đối kháng, phòng thủ JPEG Smoothing và so sánh trực tiếp hiệu quả của các cấu hình mô hình khác nhau.
+
+### 6.1. Các Mô hình hỗ trợ
+Ứng dụng tải song song 3 phiên bản mô hình phát hiện:
+1. **TinyCNN Thường (Baseline):** Mô hình cơ sở chưa được huấn luyện đối kháng (dễ bị tấn công).
+2. **TinyCNN Miễn Dịch (Robust):** Mô hình đã qua huấn luyện đối kháng bằng PGD.
+<!-- 3. **DINOv2-MAC (Large Vision Model):** Mô hình chưng cất đặc trưng đa khía cạnh (Multi-Aspect Classification) kết hợp DINOv2 backbone với Register Tokens. -->
+
+Hệ thống hỗ trợ mô phỏng **11 biến thể tấn công** từ 9 nhóm thuật toán đã nghiên cứu (FGSM, I-FGSM, PGD, MI-FGSM, NI-FGSM, DeepFool, C&W, Square, AutoAttack).
+
+---
+
+### 6.2. Các Chức năng chính
+
+#### 🔹 Tab 1: Nhận diện Nhanh
+Cho phép tải lên một bức ảnh khuôn mặt bất kỳ, chọn mô hình mong muốn để phân loại **Real / Fake** cùng thanh biểu diễn độ tin cậy (confidence score) trực quan.
+
+<p align="center">
+  <img src="reports/samples/demo_tab1_detect.png" width="850" alt="Nhận diện nhanh">
+</p>
+
+#### 🔹 Tab 2: Tấn công & Phòng thủ (Pipeline Tương tác)
+Tổ chức thành quy trình 4 bước: Tải ảnh gốc $\rightarrow$ Chọn mô hình mục tiêu $\rightarrow$ Chọn thuật toán tấn công $\rightarrow$ Điều chỉnh cường độ lọc JPEG. Kết quả trả về gồm ảnh bị tấn công, ảnh sau phòng thủ, lớp nhiễu phóng đại cùng bảng thông tin dự đoán qua từng bước.
+
+<p align="center">
+  <img src="reports/samples/demo_tab2_attack_defense.png" width="850" alt="Tấn công và Phòng thủ">
+</p>
+
+#### 🔹 Tab 3: Kết quả Thực nghiệm
+Bảng so sánh đối chiếu hiệu suất (Accuracy) và tỉ lệ tấn công thành công (ASR) của Baseline vs Robust Model nhằm cung cấp cái nhìn tổng quan về kết quả nghiên cứu.
+
+<p align="center">
+  <img src="reports/samples/demo_tab3_results.png" width="850" alt="Kết quả Thực nghiệm">
+</p>
+
+#### 🔹 Tab 4: Minh họa Tấn công
+Thư viện ảnh đối kháng (adversarial examples) và pattern nhiễu của các thuật toán giúp dễ dàng so sánh bằng mắt thường.
+
+<p align="center">
+  <img src="reports/samples/demo_tab4_gallery.png" width="850" alt="Minh họa Tấn công">
+</p>
+
+---
+
+### 6.3. Cách chạy Demo Giao diện
+Để khởi động ứng dụng demo Gradio:
+```bash
+uv run app/demo.py
+# Hoặc: python app/demo.py
+```
+Sau khi khởi chạy thành công, truy cập giao diện web tại địa chỉ: `http://localhost:7861`
+
+---
+
+## 7. Hướng dẫn chạy bằng dòng lệnh (CLI)
+
+Dự án hỗ trợ chạy thông qua Command Line Interface (CLI) rất linh hoạt, cho phép bạn truyền trực tiếp đường dẫn thư mục dữ liệu (input) và thư mục lưu trữ (output) mà không cần can thiệp vào file cấu hình.
 
 **Bước 1: Cài đặt thư viện**
 ```bash
