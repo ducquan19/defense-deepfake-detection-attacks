@@ -25,15 +25,21 @@ import torchattacks
 from PIL import Image
 
 from models.tiny_cnn import TinyCNN
+from models.dino_mac import DinoMACForDeepfakeDetection
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 ROBUST_CHECKPOINT = ROOT / "models" / "robust_detector.pth"
 BASELINE_CHECKPOINT = ROOT / "models" / "tiny_cnn.pt"
+DINOMAC_CHECKPOINT = ROOT / "models" / "dinomac_best_42_1781520775.pt"
 SAMPLE_DIR = ROOT / "reports" / "samples"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-IMG_SIZE = 128
+TINY_IMG_SIZE = 128
+DINO_IMG_SIZE = 224
+# ImageNet normalization for DINOv2
+DINO_MEAN = torch.tensor([0.485, 0.456, 0.406], device=DEVICE).view(1, 3, 1, 1)
+DINO_STD  = torch.tensor([0.229, 0.224, 0.225], device=DEVICE).view(1, 3, 1, 1)
 
 ATTACK_NAMES = ["fgsm", "ifgsm", "pgd", "mifgsm", "nifgsm", "deepfool", "cw", "square"]
 
@@ -55,7 +61,7 @@ RESULTS_DATA = {
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
-def load_model(checkpoint_path: Path) -> TinyCNN:
+def load_tinycnn(checkpoint_path: Path) -> TinyCNN:
     model = TinyCNN()
     if checkpoint_path.exists():
         ckpt = torch.load(checkpoint_path, map_location=DEVICE, weights_only=False)
@@ -64,35 +70,81 @@ def load_model(checkpoint_path: Path) -> TinyCNN:
     model.to(DEVICE).eval()
     return model
 
-MODEL = load_model(ROBUST_CHECKPOINT)           # Robust model (Adversarial Training)
-BASELINE_MODEL = load_model(BASELINE_CHECKPOINT) # Baseline model (no defense)
+
+def load_dinomac(checkpoint_path: Path) -> DinoMACForDeepfakeDetection:
+    model = DinoMACForDeepfakeDetection(
+        model_name="facebook/dinov2-with-registers-small",
+        freeze_backbone=True,
+    )
+    if checkpoint_path.exists():
+        ckpt = torch.load(checkpoint_path, map_location=DEVICE, weights_only=False)
+        state = ckpt.get("model_state_dict", ckpt)
+        model.load_state_dict(state)
+    model.to(DEVICE).eval()
+    return model
+
+
+MODEL = load_tinycnn(ROBUST_CHECKPOINT)           # Robust TinyCNN (Adversarial Training)
+BASELINE_MODEL = load_tinycnn(BASELINE_CHECKPOINT) # Baseline TinyCNN (no defense)
+DINOMAC_MODEL = load_dinomac(DINOMAC_CHECKPOINT)   # DINOv2-MAC (pretrained large model)
+
+# Named registry for dropdown → model + preprocess lookup
+MODEL_REGISTRY = {
+    "🤖 TinyCNN Thường (Dễ bị lừa)": ("tiny", BASELINE_MODEL),
+    "🛡️ TinyCNN Miễn Dịch (Adversarial Training)": ("tiny", MODEL),
+    "🧠 DINOv2-MAC (Large Vision Model)": ("dino", DINOMAC_MODEL),
+}
 
 
 # ---------------------------------------------------------------------------
 # Image helpers
 # ---------------------------------------------------------------------------
-def preprocess(img: Image.Image) -> torch.Tensor:
-    """PIL → [1, 3, H, W] float tensor on device."""
-    resized = img.convert("RGB").resize((IMG_SIZE, IMG_SIZE))
+def preprocess_tiny(img: Image.Image) -> torch.Tensor:
+    """PIL → [1, 3, 128, 128] float tensor in [0,1] for TinyCNN."""
+    resized = img.convert("RGB").resize((TINY_IMG_SIZE, TINY_IMG_SIZE))
     arr = np.asarray(resized, dtype=np.float32) / 255.0
     return torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
 
 
-def tensor_to_pil(t: torch.Tensor) -> Image.Image:
-    """[1, 3, H, W] tensor → PIL."""
-    arr = t.squeeze(0).detach().cpu().clamp(0, 1).mul(255).byte().permute(1, 2, 0).numpy()
+def preprocess_dino(img: Image.Image) -> torch.Tensor:
+    """PIL → [1, 3, 224, 224] ImageNet-normalized tensor for DINOv2."""
+    resized = img.convert("RGB").resize((DINO_IMG_SIZE, DINO_IMG_SIZE))
+    arr = np.asarray(resized, dtype=np.float32) / 255.0
+    t = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+    return (t - DINO_MEAN) / DINO_STD
+
+
+def preprocess(img: Image.Image, model_type: str = "tiny") -> torch.Tensor:
+    """Dispatch to the correct preprocessing based on model type."""
+    if model_type == "dino":
+        return preprocess_dino(img)
+    return preprocess_tiny(img)
+
+
+def tensor_to_pil(t: torch.Tensor, model_type: str = "tiny") -> Image.Image:
+    """[1, 3, H, W] tensor → PIL. Undo normalization for DINOv2."""
+    t = t.squeeze(0).detach().cpu()
+    if model_type == "dino":
+        # Undo ImageNet normalization
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+        std  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+        t = t * std + mean
+    arr = t.clamp(0, 1).mul(255).byte().permute(1, 2, 0).numpy()
     return Image.fromarray(arr)
 
 
-def jpeg_roundtrip(t: torch.Tensor, quality: int = 75) -> torch.Tensor:
+def jpeg_roundtrip(t: torch.Tensor, quality: int = 75, model_type: str = "tiny") -> torch.Tensor:
     """JPEG smoothing defense on a single image tensor."""
-    pil = tensor_to_pil(t)
+    pil = tensor_to_pil(t, model_type)
     buf = BytesIO()
     pil.save(buf, format="JPEG", quality=quality)
     buf.seek(0)
     decoded = Image.open(buf).convert("RGB")
     arr = np.asarray(decoded, dtype=np.float32) / 255.0
-    return torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+    out = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+    if model_type == "dino":
+        out = (out - DINO_MEAN) / DINO_STD
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -164,13 +216,15 @@ DEMO_ATTACKS = {
 # ---------------------------------------------------------------------------
 # Prediction logic
 # ---------------------------------------------------------------------------
-def predict_single(img: Image.Image | None):
+def predict_single(img: Image.Image | None, model_choice: str = ""):
     """Run detector on a single uploaded image (Tab 1)."""
     if img is None:
         return "<div class='empty-state'>⏳ Chờ tải ảnh...</div>"
-    tensor = preprocess(img)
+    # Resolve model
+    mtype, target_model = MODEL_REGISTRY.get(model_choice, ("tiny", MODEL))
+    tensor = preprocess(img, mtype)
     with torch.no_grad():
-        probs = MODEL(tensor).softmax(dim=1)[0]
+        probs = target_model(tensor).softmax(dim=1)[0]
     p_real, p_fake = probs[0].item(), probs[1].item()
     label = "🟢 REAL" if p_real > p_fake else "🔴 FAKE"
     confidence = max(p_real, p_fake) * 100
@@ -195,11 +249,10 @@ def defense_demo(img: Image.Image | None, model_choice: str, attack_name: str, j
     if img is None:
         return None, None, None, "<div class='empty-state'>⏳ Vui lòng tải ảnh lên.</div>"
 
-    tensor = preprocess(img)
+    # Resolve model and preprocessing type
+    mtype, target_model = MODEL_REGISTRY.get(model_choice, ("tiny", BASELINE_MODEL))
+    tensor = preprocess(img, mtype)
     attack_fn = DEMO_ATTACKS[attack_name]
-    
-    # Lựa chọn mô hình mục tiêu
-    target_model = BASELINE_MODEL if "Thường" in model_choice else MODEL
 
     # 1. Dự đoán ảnh gốc (Tìm nhãn mà mô hình đang tin tưởng)
     with torch.no_grad():
@@ -212,7 +265,7 @@ def defense_demo(img: Image.Image | None, model_choice: str, attack_name: str, j
         atk_probs = target_model(adv_tensor).softmax(dim=1)[0]
 
     # 3. Phòng thủ (Nén JPEG để xóa nhiễu)
-    defended_jpeg = jpeg_roundtrip(adv_tensor, quality=jpeg_quality)
+    defended_jpeg = jpeg_roundtrip(adv_tensor, quality=jpeg_quality, model_type=mtype)
     with torch.no_grad():
         def_probs = target_model(defended_jpeg).softmax(dim=1)[0]
 
@@ -245,9 +298,9 @@ def defense_demo(img: Image.Image | None, model_choice: str, attack_name: str, j
     </div>
     """
 
-    # Tạo các bức ảnh đầu ra (Gửi lại đúng 4 biến)
-    adv_pil = tensor_to_pil(adv_tensor)
-    def_pil = tensor_to_pil(defended_jpeg)
+    # Tạo các bức ảnh đầu ra
+    adv_pil = tensor_to_pil(adv_tensor, mtype)
+    def_pil = tensor_to_pil(defended_jpeg, mtype)
     noise = (adv_tensor - tensor).abs()
     noise_pil = tensor_to_pil((noise / noise.max()).clamp(0, 1) if noise.max() > 0 else noise)
 
@@ -422,13 +475,18 @@ def build_demo():
             with gr.Tab("🔍 Nhận diện Nhanh", id="detect"):
                 with gr.Row():
                     with gr.Column(scale=1):
-                        input_img = gr.Image(type="pil", label="📷 Ảnh đầu vào", height=350)
+                        input_img = gr.Image(type="pil", label="📷 Ảnh đầu vào", height=300)
+                        detect_model = gr.Dropdown(
+                            choices=list(MODEL_REGISTRY.keys()),
+                            value=list(MODEL_REGISTRY.keys())[1],
+                            label="Chọn mô hình"
+                        )
                         detect_btn = gr.Button("🔍 Phân tích", variant="primary", size="lg")
                     with gr.Column(scale=1):
                         result_html = gr.HTML(label="Kết quả", value="<div class='empty-state'>⏳ Tải ảnh lên để bắt đầu...</div>")
 
-                detect_btn.click(fn=predict_single, inputs=[input_img], outputs=[result_html])
-                input_img.change(fn=predict_single, inputs=[input_img], outputs=[result_html])
+                detect_btn.click(fn=predict_single, inputs=[input_img, detect_model], outputs=[result_html])
+                input_img.change(fn=predict_single, inputs=[input_img, detect_model], outputs=[result_html])
 
             # ── Tab 2: Attack + Defense Pipeline (Tối giản) ──
             with gr.Tab("⚔️🛡️ Tấn công & Phòng thủ", id="attack_defense"):
@@ -438,14 +496,14 @@ def build_demo():
                         def_img = gr.Image(type="pil", label="1. Tải ảnh gốc", height=220)
                         
                         def_model = gr.Dropdown(
-                            choices=["🤖 AI Thường (Dễ bị lừa)", "🛡️ AI Miễn Dịch (Khó bị lừa)"],
-                            value="🤖 AI Thường (Dễ bị lừa)",
+                            choices=list(MODEL_REGISTRY.keys()),
+                            value=list(MODEL_REGISTRY.keys())[0],
                             label="2. Chọn Mô hình mục tiêu"
                         )
                         
                         def_method = gr.Dropdown(
                             choices=list(DEMO_ATTACKS.keys()),
-                            value="PGD (ε=0.03, steps=20)",
+                            value="PGD (ε=0.03, 20 steps)",
                             label="3. Chọn thuật toán Tấn Công"
                         )
                         
